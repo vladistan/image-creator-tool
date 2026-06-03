@@ -1,0 +1,150 @@
+# Image Creator Tool - Multi-provider AI image generation CLI
+# Reference: CODE-PY-001 (Python Project Setup pattern)
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=4.0",
+  "ruff>=0.8",
+  "mypy>=1.13",
+  "pre-commit>=4.0",
+  "types-pyyaml>=6.0"
+]
+
+[project]
+name = "image-creator-tool"
+version = "0.1.0"
+description = "Multi-provider AI image generation CLI with style presets and platform sizing"
+readme = "README.md"
+authors = [
+  {name = "Vlad Korolev", email = "vlad@v-lad.org"}
+]
+license = {text = "MIT"}
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Multimedia :: Graphics",
+  "Typing :: Typed",
+]
+requires-python = ">=3.13"
+dependencies = [
+  "typer>=0.12.0",
+  "rich>=13.0",
+  "structlog>=24.0",
+  "sentry-sdk>=2.0.0",
+  "pydantic-settings[toml]>=2.0.0",
+  "pyyaml>=6.0",
+  "Pillow>=10.0",
+  "google-auth>=2.0",
+  "requests>=2.28",
+  "google-cloud-aiplatform>=1.153.1",
+  "boto3>=1.43.14",
+  "cairosvg>=2.9.0"
+]
+
+[project.scripts]
+image-creator-tool = "image_creator_tool.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/vladistan/image-creator-tool"
+Repository = "https://github.com/vladistan/image-creator-tool"
+Issues = "https://github.com/vladistan/image-creator-tool/issues"
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = false
+exclude_lines = [
+  "pragma: no cover",
+  "def __repr__",
+  "if self.debug:",
+  "if settings.DEBUG",
+  "raise AssertionError",
+  "raise NotImplementedError",
+  "if 0:",
+  "if __name__ == .__main__.:",
+  "class .*\\bProtocol\\):",
+  "@(abc\\.)?abstractmethod"
+]
+
+[tool.coverage.run]
+source = ["src/image_creator_tool"]
+omit = [
+  "*/tests/*",
+  "*/test_*.py",
+  "*/__about__.py",
+  "*/__pycache__/*"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/image_creator_tool"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_any_generics = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_unreachable = true
+strict_equality = true
+exclude = [".venv", "build", "dist"]
+
+[[tool.mypy.overrides]]
+module = ["cairosvg", "boto3"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["src"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+pylint.max-args = 8
+pylint.max-branches = 18
+pylint.max-statements = 85
+select = [
+  "E", # pycodestyle errors
+  "W", # pycodestyle warnings
+  "F", # pyflakes
+  "I", # isort
+  "N", # pep8-naming
+  "B", # flake8-bugbear
+  "C4", # flake8-comprehensions
+  "UP", # pyupgrade
+  "SIM", # flake8-simplify
+  "TCH", # flake8-type-checking
+  "RUF", # ruff-specific rules
+  "ERA", # eradicate
+  "PL", # pylint
+  "PERF" # performance
+]
+ignore = []
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.isort]
+known-first-party = ["image_creator_tool"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/**/*.py" = ["ARG", "S101", "PLR2004"]
+"src/image_creator_tool/gemini.py" = ["TCH003"]

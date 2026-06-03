@@ -1,0 +1,18 @@
+# Virtual environment
+.venv/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Test and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Type checking
+.mypy_cache/
+
+# Linting
+.ruff_cache/
