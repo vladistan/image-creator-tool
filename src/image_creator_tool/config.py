@@ -82,7 +82,9 @@ def _load_profiles_raw() -> dict[str, dict[str, Any]]:
         return {}
     with CONFIG_FILE.open("rb") as f:
         data = tomllib.load(f)
-    profiles: dict[str, dict[str, Any]] = data.get("profile", {})
+    profiles = data.get("profile", {})
+    if not isinstance(profiles, dict):
+        return {}
     return profiles
 
 
