@@ -17,7 +17,7 @@ dev = [
 
 [project]
 name = "image-creator-tool"
-version = "0.1.0"
+version = "0.1.1"
 description = "Multi-provider AI image generation CLI with style presets and platform sizing"
 readme = "README.md"
 authors = [

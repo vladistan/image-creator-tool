@@ -43,31 +43,36 @@ def init() -> None:
     typer.echo()
 
     # Load existing config if present
-    config: dict[str, str] = {}
+    raw_data: dict[str, object] = {}
     if CONFIG_FILE.exists():
         try:
             with CONFIG_FILE.open("rb") as f:
-                config = tomllib.load(f)  # type: ignore[assignment,unused-ignore]
+                raw_data = tomllib.load(f)
         except (OSError, tomllib.TOMLDecodeError) as e:
             typer.echo(f"Warning: could not read existing config: {e}", err=True)
 
+    # Extract only the flat base settings (strings) for interactive editing
+    base_config: dict[str, str] = {
+        k: str(v) for k, v in raw_data.items() if isinstance(v, str)
+    }
+
     def ask(key: str, prompt: str, default: str = "") -> str:
-        current = config.get(key, default)
+        current = base_config.get(key, default)
         shown = f" [{current}]" if current else ""
         val = input(f"{prompt}{shown}: ").strip()
         return val or current
 
-    config["default_model"] = ask(
+    base_config["default_model"] = ask(
         "default_model",
         "Default model (flash / pro / flash-2.5)",
         "flash",
     )
-    config["default_platform"] = ask(
+    base_config["default_platform"] = ask(
         "default_platform",
         "Default platform (youtube / slides / blog / square / none)",
         "",
     )
-    config["default_project"] = ask(
+    base_config["default_project"] = ask(
         "default_project",
         "Default project name (optional, e.g. 'blog')",
         "",
@@ -77,13 +82,26 @@ def init() -> None:
         "Default output directory",
         "~/.local/share/image-creator-tool/outputs",
     )
-    config["output_dir"] = out_dir
+    base_config["output_dir"] = out_dir
 
-    # Clean empty values and write TOML
-    config = {k: v for k, v in config.items() if v}
+    # Write base settings, preserving [profile.*] sections from existing file
+    base_config = {k: v for k, v in base_config.items() if v}
 
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    lines = [f'{k} = "{v}"' for k, v in sorted(config.items())]
+    lines = [f'{k} = "{v}"' for k, v in sorted(base_config.items())]
+
+    # Preserve profile table sections if they exist
+    profiles = raw_data.get("profile")
+    if isinstance(profiles, dict):
+        lines.append("")
+        for prof_name, prof_data in profiles.items():
+            if not isinstance(prof_data, dict):
+                continue
+            lines.append(f"[profile.{prof_name}]")
+            for pk, pv in prof_data.items():
+                lines.append(f'{pk} = "{pv}"')
+            lines.append("")
+
     CONFIG_FILE.write_text("\n".join(lines) + "\n")
     typer.echo(f"\n✓ Config saved to {CONFIG_FILE}")
     typer.echo("\nTry: image-creator-tool generate --preset editorial 'a robot'")
