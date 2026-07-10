@@ -8,6 +8,11 @@ editorial:
     Dark editorial style — thin lines on black, muted palette, technical feel
   prompt: >-
     on pure black background, {subject}, thin pale gray and subtle orange line art, minimalist technical diagram aesthetic, clean vector style, sparse with lots of negative space, dark moody, no text, no labels
+editorial-light:
+  description: >-
+    Light editorial style — thin dark lines on pure white, minimalist, airy
+  prompt: >-
+    on pure flat white background, {subject}, thin charcoal gray and subtle orange line art, minimalist technical diagram aesthetic, clean vector style, single-weight lines, no shading, no cross-hatching, sparse with lots of white negative space, light and airy, no text, no labels
 blueprint:
   description: >-
     Technical blueprint — white/cyan lines on dark navy, engineering drawing feel
@@ -43,3 +48,8 @@ grain:
     Film grain photo — moody, high ISO, warm tones, cinematic
   prompt: >-
     photograph of {subject}, heavy film grain ISO 3200, warm color grading, shallow depth of field, cinematic lighting, moody atmosphere, 35mm analog film look, slight vignette
+neon-noir:
+  description: >-
+    Neon-on-black flat vector — pink & lime with violet accents, grain, negative space
+  prompt: >-
+    {subject}, bold flat vector illustration, neon pink and lime green with deep violet accents on a solid near-black background, thick bold linework, high contrast, strong film grain texture, flat minimal shading, generous black negative space, subject pops against the dark backdrop, vibrant yet simple, no text

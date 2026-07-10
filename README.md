@@ -17,32 +17,32 @@ Multi-provider AI image generation CLI with style presets, platform sizing, and 
 ## Installation
 
 ```bash
-brew tap vladistan/gizmos
-brew install image-creator-tool
+cd tools/image-creator-tool
+uv sync
 ```
 
 ## Usage
 
 ```bash
 # Generate an image
-image-creator-tool generate "a robot playing chess" --preset editorial
+uv run image-creator-tool generate "a robot playing chess" --preset editorial
 
 # Dry run (see composed prompt without calling API)
-image-creator-tool generate "sunset" --dry-run --preset grain --platform youtube
+uv run image-creator-tool generate "sunset" --dry-run --preset grain --platform youtube
 
 # List available options
-image-creator-tool list-presets
-image-creator-tool list-platforms
-image-creator-tool list-providers
+uv run image-creator-tool list-presets
+uv run image-creator-tool list-platforms
+uv run image-creator-tool list-providers
 
 # Regenerate last image
-image-creator-tool again
+uv run image-creator-tool again
 
 # View history
-image-creator-tool history -n 10
+uv run image-creator-tool history -n 10
 
 # Show version
-image-creator-tool --version
+uv run image-creator-tool --version
 ```
 
 ## Configuration
@@ -56,7 +56,6 @@ sentry_dsn = ""  # optional
 [profile.vertex-work]
 provider = "vertex"
 gcp_project = "my-project"
-gcp_region = "us-central1"
 default_model = "flash"
 
 [profile.deepinfra]
@@ -108,22 +107,15 @@ User presets/platforms merge with (and can override) the bundled defaults.
 ## Requirements
 
 - Python >= 3.13
-- `GEMINI_API_KEY` environment variable
+- `GEMINI_API_KEY` environment variable (or SOPS-encrypted secrets)
 - ImageMagick 7 (`magick` command) for platform resizing and contact sheets
 
 ## Development
 
 ```bash
-git clone https://github.com/vladistan/image-creator-tool.git
-cd image-creator-tool
 uv sync
-```
-
-Run checks:
-
-```bash
-uv run pytest
-uv run ruff check src/
+uv run pytest -v
+uv run ruff check .
 uv run mypy src/
 ```
 

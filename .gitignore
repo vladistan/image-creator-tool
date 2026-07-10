@@ -16,3 +16,6 @@ htmlcov/
 
 # Linting
 .ruff_cache/
+
+# Local config with real API keys (only config.example.toml is tracked)
+config.toml

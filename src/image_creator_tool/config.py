@@ -12,7 +12,7 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -43,8 +43,18 @@ class ImageCreatorSettings(BaseSettings):
         default_factory=lambda: Path.home() / ".local" / "share" / "image-creator-tool" / "outputs"
     )
     sentry_dsn: str = ""
+
+    @field_validator("output_dir")
+    @classmethod
+    def _expand_output_dir(cls, v: Path) -> Path:
+        """Expand a leading ``~`` so a config/env override is a real, scannable path.
+
+        Generation expands the tilde when writing, but index/provenance scans use
+        this value directly; without expansion they scan a literal ``~/...`` dir
+        that does not exist.
+        """
+        return v.expanduser()
     gcp_project: str = ""
-    gcp_region: str = "us-central1"
     provider_preference: list[str] = [
         "vertex", "deepinfra", "openrouter", "openai", "bedrock", "gemini"
     ]
@@ -98,29 +108,40 @@ def build_provider_kwargs(prov_name: str, config: dict[str, Any]) -> dict[str, s
 
     Overlays settings from the first [profile.*] section whose `provider` matches
     `prov_name` onto a copy of `config`, then extracts the provider-specific
-    constructor arguments (GCP project/region, AWS profile/region, api_key).
+    constructor arguments (GCP project, AWS profile/region, api_key).
+
+    `api_key` is treated as a per-provider secret: it is taken only from a
+    profile targeting `prov_name` (or an active default profile whose provider
+    is `prov_name`), never inherited from a mismatched default profile — that
+    would leak one provider's key into another.
     """
     merged = config.copy()
+    matched_api_key: str | None = None
     for pdata in _load_profiles_raw().values():
         if pdata.get("provider") == prov_name:
             for k, v in pdata.items():
                 if v and k != "provider":
                     merged[k] = str(v) if not isinstance(v, str) else v
+            raw_key = pdata.get("api_key")
+            matched_api_key = str(raw_key) if raw_key else None
             break
 
     kwargs: dict[str, str] = {}
     if prov_name == "vertex":
         if "gcp_project" in merged:
             kwargs["project"] = merged["gcp_project"]
-        if "gcp_region" in merged:
-            kwargs["region"] = merged["gcp_region"]
     elif prov_name == "bedrock":
         if "aws_profile" in merged:
             kwargs["aws_profile"] = merged["aws_profile"]
         if "aws_region" in merged:
             kwargs["aws_region"] = merged["aws_region"]
-    if "api_key" in merged:
-        kwargs["api_key"] = merged["api_key"]
+    # api_key is a per-provider secret: use it only when sourced from a profile
+    # targeting prov_name, never an inherited default-profile key for another
+    # provider (which would leak one provider's key into another).
+    if matched_api_key:
+        kwargs["api_key"] = matched_api_key
+    elif config.get("api_key") and config.get("default_provider") == prov_name:
+        kwargs["api_key"] = config["api_key"]
     return kwargs
 
 
@@ -147,7 +168,6 @@ def get_config_dict(profile_name: str | None = None) -> dict[str, Any]:
         "default_preset": settings.default_preset,
         "output_dir": str(settings.output_dir),
         "gcp_project": settings.gcp_project,
-        "gcp_region": settings.gcp_region,
     }
 
     # Apply profile overlay

@@ -52,9 +52,11 @@ def test_validate_platform_string_dimensions():
 
 def test_load_presets_bundled():
     presets = load_presets()
-    assert len(presets) >= 8
+    assert len(presets) >= 10
     assert "editorial" in presets
+    assert "editorial-light" in presets
     assert "blueprint" in presets
+    assert "neon-noir" in presets
 
 
 def test_load_presets_all_have_subject_placeholder():

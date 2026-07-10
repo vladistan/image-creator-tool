@@ -28,6 +28,7 @@ from image_creator_tool.errors import ImageCreatorError
 from image_creator_tool.generation_core import GenerationResult, _generate_inner
 from image_creator_tool.history import resolve_output_path
 from image_creator_tool.imaging import make_labeled_contact_sheet
+from image_creator_tool.indexer import index_for
 from image_creator_tool.providers import get_provider
 from image_creator_tool.registry import resolve_model
 
@@ -130,6 +131,12 @@ def _apply_combo(base_args: Any, combo: dict[str, str]) -> SimpleNamespace:
         size=getattr(base_args, "size", None),
         quality=getattr(base_args, "quality", None),
         aspect=getattr(base_args, "aspect", None),
+        # Carry through prompt-shaping / edit inputs that _generate_inner reads;
+        # omitting these silently drops --style (and edit ops) from every cell.
+        style=getattr(base_args, "style", None),
+        edit_op=getattr(base_args, "edit_op", None),
+        search_prompt=getattr(base_args, "search_prompt", None),
+        mask=getattr(base_args, "mask", None),
     )
 
 
@@ -173,6 +180,12 @@ def run_sweep(
         n_cols = len(row_dim.values)
 
     all_results: list[GenerationResult] = []
+
+    # Contact-sheet badge config (threaded from CLI, mirroring generation_core).
+    badges: bool = getattr(args, "badges", True)
+    badge_radius: int = int(
+        getattr(args, "contact_badge_radius", None) or config.get("contact_badge_radius", 30)
+    )
 
     project = args.project or config.get("default_project")
     base_output = resolve_output_path(None, args.prompt, project, config)
@@ -229,9 +242,10 @@ def run_sweep(
                 prov_name, full_model_id = resolve_model(cell_model, settings_pref)
                 cell_provider = get_provider(prov_name, **build_provider_kwargs(prov_name, config))
             except KeyError:
-                # Unknown model alias — fall back to passed provider with original model name
+                # Unknown model alias — fall back to the provider passed on the CLI
+                # (the -p value), keeping the original model name for passthrough.
                 log.warning(
-                    "unknown model alias in sweep, using default provider",
+                    "unknown model alias in sweep, using the provider passed on the command line",
                     model=cell_model,
                 )
                 full_model_id = cell_model
@@ -242,7 +256,11 @@ def run_sweep(
                 results = _generate_inner(cell_args, config, cell_provider)
                 if results:
                     all_results.extend(results)
-                    cells_for_sheet.append((results[0].output_path, cell_label))
+                    # Annotate the cell with the short index minted during
+                    # _generate_inner's provenance step, when one was assigned.
+                    cell_index = index_for(results[0].output_path)
+                    sheet_label_text = f"{cell_label}  @{cell_index}" if cell_index else cell_label
+                    cells_for_sheet.append((results[0].output_path, sheet_label_text))
             except Exception as e:
                 log.error("sweep cell failed", combo=full_combo, error=str(e))
                 print(f"  ✗ {cell_label}: {e}")
@@ -264,8 +282,16 @@ def run_sweep(
         if sheet_label:
             title = f"{args.prompt} [{sheet_label}]"
 
-        make_labeled_contact_sheet(cells_for_sheet, contact_path, cols=n_cols, title=title)
-        print(f"Sweep sheet: {contact_path}")
+        make_labeled_contact_sheet(
+            cells_for_sheet,
+            contact_path,
+            cols=n_cols,
+            title=title,
+            badges=badges,
+            badge_radius=badge_radius,
+        )
+        numbered_suffix = ", numbered" if badges else ""
+        print(f"Sweep sheet: {contact_path} ({len(cells_for_sheet)} images{numbered_suffix})")
 
     if not all_results:
         raise ImageCreatorError("All sweep cells failed.")

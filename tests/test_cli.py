@@ -2,6 +2,7 @@
 
 from image_creator_tool import __version__
 from image_creator_tool.cli import app
+from image_creator_tool.indexer import register_index
 
 
 def test_help_exits_zero(runner):
@@ -75,3 +76,63 @@ def test_generate_help(runner):
     assert "--provider" in result.stdout
     assert "--preset" in result.stdout
     assert "--dry-run" in result.stdout
+
+
+def _capture_generate_args(monkeypatch):
+    """Replace cli.generate with a capturing stub; return the mutable holder."""
+    holder = {}
+
+    def _capture(args, config, provider):
+        holder["args"] = args
+        return []
+
+    monkeypatch.setattr("image_creator_tool.cli.generate", _capture)
+    return holder
+
+
+def test_generate_badge_defaults_marshalled(runner, monkeypatch):
+    holder = _capture_generate_args(monkeypatch)
+    result = runner.invoke(app, ["generate", "a robot", "--provider", "gemini"])
+    assert result.exit_code == 0
+    assert holder["args"].badges is True
+    assert holder["args"].contact_badge_radius is None
+
+
+def test_generate_no_badges_flag_marshalled(runner, monkeypatch):
+    holder = _capture_generate_args(monkeypatch)
+    result = runner.invoke(app, ["generate", "a robot", "--provider", "gemini", "--no-badges"])
+    assert result.exit_code == 0
+    assert holder["args"].badges is False
+
+
+def test_generate_badge_radius_flag_marshalled(runner, monkeypatch):
+    holder = _capture_generate_args(monkeypatch)
+    result = runner.invoke(
+        app, ["generate", "a robot", "--provider", "gemini", "--contact-badge-radius", "40"]
+    )
+    assert result.exit_code == 0
+    assert holder["args"].contact_badge_radius == 40
+
+
+def test_generate_resolves_index_reference_in_edit(runner, monkeypatch, tmp_path):
+    """`--edit @INDEX` is expanded to the indexed image's path before generation."""
+    image = tmp_path / "barn.png"
+    image.write_bytes(b"barn")
+    index = register_index(image, key="entity-barn")
+    monkeypatch.setenv("IMAGE_CREATOR_OUTPUT_DIR", str(tmp_path))
+
+    holder = _capture_generate_args(monkeypatch)
+    result = runner.invoke(
+        app, ["generate", "make it snowy", "--provider", "gemini", "--edit", f"@{index}"]
+    )
+    assert result.exit_code == 0
+    assert holder["args"].edit == str(image)
+
+
+def test_generate_invalid_index_reference_errors(runner, monkeypatch, tmp_path):
+    monkeypatch.setenv("IMAGE_CREATOR_OUTPUT_DIR", str(tmp_path))
+    _capture_generate_args(monkeypatch)
+    result = runner.invoke(
+        app, ["generate", "make it snowy", "--provider", "gemini", "--edit", "@ZZZZZZZZ"]
+    )
+    assert result.exit_code != 0

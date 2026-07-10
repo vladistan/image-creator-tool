@@ -6,47 +6,21 @@
 # Default image generation provider
 # Available: "gemini", "vertex", "deepinfra", "openrouter", "bedrock", "openai"
 default_provider = "gemini"
-
 # Default model alias (provider-specific, see: image-creator-tool list-models)
 default_model = "flash"
-
 # Default style preset (see: image-creator-tool list-presets)
 default_preset = ""
-
 # Default platform sizing (see: image-creator-tool list-platforms)
 default_platform = ""
-
 # Default profile to activate (must match a [profile.*] section below)
 default_profile = ""
-
 # Default project name (groups outputs in subfolder)
 default_project = ""
-
 # Output directory for generated images
 # Default: ~/.local/share/image-creator-tool/outputs/
 output_dir = "~/.local/share/image-creator-tool/outputs"
-
 # Sentry DSN for error tracking (optional)
 sentry_dsn = ""
-
-# Provider profiles — switch with --profile / -P
-# Each profile configures a provider with its credentials and defaults.
-
-[profile.vertex]
-provider = "vertex"
-gcp_project = "my-project"
-gcp_region = "us-central1"
-default_model = "flash"
-
-[profile.deepinfra]
-provider = "deepinfra"
-api_key = ""  # pragma: allowlist secret
-default_model = "flux-2-dev"
-
-[profile.openrouter]
-provider = "openrouter"
-api_key = ""  # pragma: allowlist secret
-default_model = "flash"
 
 [profile.bedrock]
 provider = "bedrock"
@@ -54,7 +28,22 @@ aws_profile = "default"
 aws_region = "us-west-2"
 default_model = "ultra"
 
+[profile.deepinfra]
+provider = "deepinfra"
+api_key = "" # pragma: allowlist secret
+default_model = "flux-2-dev"
+
 [profile.openai]
 provider = "openai"
-api_key = ""  # pragma: allowlist secret
+api_key = "" # pragma: allowlist secret
 default_model = "gpt-image-2"
+
+[profile.openrouter]
+provider = "openrouter"
+api_key = "" # pragma: allowlist secret
+default_model = "flash"
+
+[profile.vertex]
+provider = "vertex"
+gcp_project = "my-project"
+default_model = "flash"

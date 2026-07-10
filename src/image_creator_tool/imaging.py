@@ -11,7 +11,7 @@ from io import BytesIO
 from typing import TYPE_CHECKING, Any
 
 import cairosvg
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 from PIL.Image import Resampling
 
 if TYPE_CHECKING:
@@ -28,6 +28,57 @@ def _open_image(path: Path) -> Image.Image:
 _CONTACT_BG_COLOR = (15, 15, 15)  # #0f0f0f
 _CONTACT_CELL_WIDTH = 600
 _CONTACT_SPACING = 10
+
+# Numbered-badge styling for contact-sheet cells (T86).
+_BADGE_RADIUS = 30
+_BADGE_FILL = (221, 17, 17)  # #d11
+_BADGE_TEXT = (255, 255, 255)
+_BADGE_INSET = 6
+
+
+def _load_badge_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    """Return PIL's built-in default font at ``size``.
+
+    Falls back to the no-argument default font on older Pillow builds where
+    ``load_default`` does not accept a ``size`` keyword.
+    """
+    try:
+        return ImageFont.load_default(size=size)
+    except TypeError:
+        return ImageFont.load_default()
+
+
+def _center_badge_text(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    text: str,
+    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+) -> None:
+    """Draw ``text`` centered within ``box`` in the badge text colour."""
+    x0, y0, x1, y1 = box
+    left, top, right, bottom = draw.textbbox((0, 0), text, font=font)
+    text_w = right - left
+    text_h = bottom - top
+    tx = x0 + (x1 - x0 - text_w) / 2 - left
+    ty = y0 + (y1 - y0 - text_h) / 2 - top
+    draw.text((tx, ty), text, fill=_BADGE_TEXT, font=font)
+
+
+def _draw_badge(
+    draw: ImageDraw.ImageDraw,
+    x: int,
+    y: int,
+    number: int,
+    radius: int,
+) -> None:
+    """Draw a filled red circle with a centered white ``number``.
+
+    The circle spans ``(x, y)`` to ``(x + 2*radius, y + 2*radius)``.
+    """
+    box = (x, y, x + 2 * radius, y + 2 * radius)
+    draw.ellipse(box, fill=_BADGE_FILL)
+    font = _load_badge_font(radius)
+    _center_badge_text(draw, box, str(number), font)
 
 
 def apply_platform_fit(
@@ -71,6 +122,8 @@ def make_contact_sheet(
     cell_width: int = _CONTACT_CELL_WIDTH,
     spacing: int = _CONTACT_SPACING,
     bg_color: tuple[int, int, int] = _CONTACT_BG_COLOR,
+    badges: bool = True,
+    badge_radius: int = _BADGE_RADIUS,
 ) -> Path:
     """Assemble a contact sheet montage from multiple images.
 
@@ -84,6 +137,8 @@ def make_contact_sheet(
         cell_width: Width in pixels of each cell (images are scaled to fit).
         spacing: Pixel gap between cells and around the border.
         bg_color: RGB background colour tuple.
+        badges: Draw a red numbered badge (1..N) on each cell.
+        badge_radius: Badge circle radius in pixels (clamped to fit the cell).
     """
     if not image_paths:
         raise ValueError("No images for contact sheet")
@@ -107,12 +162,16 @@ def make_contact_sheet(
 
     # Compose grid
     sheet = Image.new("RGB", (grid_w, grid_h), bg_color)
+    draw = ImageDraw.Draw(sheet)
+    badge_r = min(badge_radius, (cell_width - 2 * _BADGE_INSET) // 2)
     for i, cell in enumerate(cells):
         col = i % cols
         row = i // cols
         x = spacing + col * (cell_width + spacing)
         y = spacing + row * (cell_height + spacing)
         sheet.paste(cell, (x, y))
+        if badges and badge_r > 0:
+            _draw_badge(draw, x + _BADGE_INSET, y + _BADGE_INSET, i + 1, badge_r)
 
     sheet.save(output_path)
 
@@ -128,7 +187,7 @@ _LABEL_COLOR = (255, 255, 255)
 _LABEL_BG = (30, 30, 30)
 
 
-def make_labeled_contact_sheet(
+def make_labeled_contact_sheet(  # noqa: PLR0913 — signature fixed by design (labeled + badge params)
     cells: list[tuple[Path, str]],
     output_path: Path,
     cols: int = 0,
@@ -136,6 +195,8 @@ def make_labeled_contact_sheet(
     cell_width: int = _CONTACT_CELL_WIDTH,
     spacing: int = _CONTACT_SPACING,
     bg_color: tuple[int, int, int] = _CONTACT_BG_COLOR,
+    badges: bool = True,
+    badge_radius: int = _BADGE_RADIUS,
 ) -> Path:
     """Assemble a labeled contact sheet for multi-model comparison.
 
@@ -149,6 +210,8 @@ def make_labeled_contact_sheet(
         cell_width: Width in pixels of each cell.
         spacing: Pixel gap between cells and around the border.
         bg_color: RGB background colour tuple.
+        badges: Draw a red numbered badge (1..N) on each cell's thumbnail.
+        badge_radius: Badge circle radius in pixels (clamped to fit the cell).
     """
 
     if not cells:
@@ -187,6 +250,7 @@ def make_labeled_contact_sheet(
         display_title = title if len(title) < _max_title_len else title[:97] + "..."
         draw.text((_CONTACT_SPACING, 4), f"Prompt: {display_title}", fill=_LABEL_COLOR)
 
+    badge_r = min(badge_radius, (cell_width - 2 * _BADGE_INSET) // 2)
     for i, (cell, label) in enumerate(images):
         col = i % cols
         row = i // cols
@@ -199,6 +263,12 @@ def make_labeled_contact_sheet(
 
         # Paste image below label
         sheet.paste(cell, (x, y + _LABEL_HEIGHT))
+
+        # Draw numbered badge on the thumbnail region (below the label strip)
+        if badges and badge_r > 0:
+            _draw_badge(
+                draw, x + _BADGE_INSET, y + _LABEL_HEIGHT + _BADGE_INSET, i + 1, badge_r
+            )
 
     sheet.save(output_path)
 

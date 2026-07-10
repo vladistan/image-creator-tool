@@ -25,6 +25,12 @@ from image_creator_tool.history import (
     write_sidecar,
 )
 from image_creator_tool.imaging import apply_platform_fit, make_contact_sheet
+from image_creator_tool.indexer import register_index
+from image_creator_tool.provenance import (
+    ProvenanceRecord,
+    embed_exif_metadata,
+    write_provenance_sidecar,
+)
 from image_creator_tool.providers import get_provider
 from image_creator_tool.providers.base import GenerationParams
 from image_creator_tool.registry import resolve_model
@@ -235,6 +241,11 @@ def _compose_generation_prompt(
             raise PermanentAPIError("Error: prompt is required")
         prompt = compose_prompt(args.prompt, preset_name, presets)
 
+    # Prepend a saved style description (from `--style <name>`) if present.
+    style_description = getattr(args, "style", None)
+    if style_description:
+        prompt = f"{style_description}, {prompt}"
+
     # Prepend semantic context for reference images
     if style_refs:
         prompt = f"Use the provided image(s) as a style reference. {prompt}"
@@ -323,6 +334,108 @@ def _parse_contact_bg_color(contact_bg: str | None) -> tuple[int, int, int]:
     return (15, 15, 15)
 
 
+def _write_variant_contact_sheet(
+    outputs: list[GenerationResult],
+    primary_output: Path,
+    contact_cols: int,
+    contact_cell_width: int,
+    contact_bg_color: tuple[int, int, int],
+    badges: bool,
+    badge_radius: int,
+) -> None:
+    """Compose the multi-variant contact sheet and print its summary line."""
+    contact_path = primary_output.with_name(f"{primary_output.stem}-contact.png")
+    with sentry_sdk.start_span(op="image.contact_sheet", description=f"{len(outputs)} variants"):
+        make_contact_sheet(
+            [o.output_path for o in outputs],
+            contact_path,
+            cols=contact_cols,
+            cell_width=contact_cell_width,
+            bg_color=contact_bg_color,
+            badges=badges,
+            badge_radius=badge_radius,
+        )
+    numbered_suffix = ", numbered" if badges else ""
+    print(f"Contact sheet: {contact_path} ({len(outputs)} images{numbered_suffix})")
+
+
+def _record_provenance(
+    result: GenerationResult,
+    provider_name: str,
+    seed: int | None,
+    params: dict[str, Any],
+    subject: str = "",
+) -> str | None:
+    """Write a PROV sidecar, embed metadata, and mint a short index for an image.
+
+    ``subject`` is the raw prompt before preset composition; recording it
+    alongside the composed ``result.prompt`` makes the (subject, preset) pairing
+    explicit in provenance.
+
+    Provenance and indexing are best-effort enrichment: a failure here (e.g. an
+    image format that resists EXIF embedding) must never fail the generation
+    itself, so any error is logged and reported to Sentry rather than propagated.
+
+    Returns the short index assigned to the image, or None if recording failed.
+    """
+    extra = {"preset": result.preset, "platform": result.platform}
+    record = ProvenanceRecord(
+        prompt=result.prompt,
+        model=result.model,
+        provider=provider_name,
+        output_path=str(result.output_path),
+        timestamp=result.timestamp,
+        seed=seed,
+        parameters={**params, **{k: v for k, v in extra.items() if v is not None}},
+        subject=subject,
+    )
+    try:
+        write_provenance_sidecar(record, result.output_path, overwrite=True)
+        embed_exif_metadata(result.output_path, record)
+        return register_index(result.output_path, record.entity_id)
+    except Exception as e:
+        log.warning("provenance recording failed", path=str(result.output_path), error=str(e))
+        sentry_sdk.capture_exception(e)
+        return None
+
+
+def _persist_generation(
+    outputs: list[GenerationResult],
+    args: Any,
+    provider: Provider,
+    seed_val: int | None,
+    project: str | None,
+    size: str | None,
+    quality: str | None,
+    aspect: str | None,
+) -> dict[Path, str | None]:
+    """Write per-image sidecar/provenance/history and return each output's short index.
+
+    Skips metadata writes when ``--no-metadata`` is set; those images still appear in
+    history but carry no index (mapped to None).
+    """
+    no_metadata = getattr(args, "no_metadata", False)
+    gen_params = {
+        k: v
+        for k, v in {"size": size, "quality": quality, "aspect": aspect}.items()
+        if v is not None
+    }
+    indices: dict[Path, str | None] = {}
+    for result in outputs:
+        entry = asdict(result)
+        entry["output_path"] = str(result.output_path)
+        entry["provider"] = provider.name
+        index = None
+        if not no_metadata:
+            write_sidecar(result.output_path, entry)
+            index = _record_provenance(
+                result, provider.name, seed_val, gen_params, subject=args.prompt
+            )
+        indices[result.output_path] = index
+        append_history({**entry, "subject": args.prompt, "project": project, "index": index})
+    return indices
+
+
 def _generate_inner(
     args: Any, config: dict[str, Any], provider: Provider
 ) -> list[GenerationResult]:
@@ -352,6 +465,10 @@ def _generate_inner(
     )
     contact_bg: str | None = getattr(args, "contact_bg", None) or config.get("contact_bg")
     contact_bg_color = _parse_contact_bg_color(contact_bg)
+    badges: bool = getattr(args, "badges", True)
+    badge_radius: int = int(
+        getattr(args, "contact_badge_radius", None) or config.get("contact_badge_radius", 30)
+    )
 
     # Dry run
     if args.dry_run:
@@ -428,25 +545,20 @@ def _generate_inner(
 
     # Contact sheet for multi-variant runs
     if n > 1:
-        contact_path = primary_output.with_name(f"{primary_output.stem}-contact.png")
-        with sentry_sdk.start_span(op="image.contact_sheet", description=f"{n} variants"):
-            make_contact_sheet(
-                [o.output_path for o in outputs],
-                contact_path,
-                cols=contact_cols,
-                cell_width=contact_cell_width,
-                bg_color=contact_bg_color,
-            )
-        print(f"Contact sheet: {contact_path}")
+        _write_variant_contact_sheet(
+            outputs,
+            primary_output,
+            contact_cols,
+            contact_cell_width,
+            contact_bg_color,
+            badges,
+            badge_radius,
+        )
 
     # Metadata and history
-    no_metadata = getattr(args, "no_metadata", False)
-    for result in outputs:
-        entry = asdict(result)
-        entry["output_path"] = str(result.output_path)
-        if not no_metadata:
-            write_sidecar(result.output_path, entry)
-        append_history({**entry, "subject": args.prompt, "project": project})
+    indices = _persist_generation(
+        outputs, args, provider, seed_val, project, size, quality, aspect
+    )
 
     save_last_run(
         {
@@ -468,6 +580,8 @@ def _generate_inner(
     )
 
     for result in outputs:
-        print(f"✓ {result.output_path} ({result.duration_s}s)")
+        index = indices.get(result.output_path)
+        ref = f" [@{index}]" if index else ""
+        print(f"✓ {result.output_path}{ref} ({result.duration_s}s)")
 
     return outputs

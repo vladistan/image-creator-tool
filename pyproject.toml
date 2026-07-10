@@ -1,5 +1,4 @@
 # Image Creator Tool - Multi-provider AI image generation CLI
-# Reference: CODE-PY-001 (Python Project Setup pattern)
 
 [build-system]
 requires = ["hatchling"]
@@ -17,7 +16,7 @@ dev = [
 
 [project]
 name = "image-creator-tool"
-version = "0.1.1"
+version = "0.2.0"
 description = "Multi-provider AI image generation CLI with style presets and platform sizing"
 readme = "README.md"
 authors = [
@@ -32,7 +31,7 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.13",
   "Topic :: Multimedia :: Graphics",
-  "Typing :: Typed",
+  "Typing :: Typed"
 ]
 requires-python = ">=3.13"
 dependencies = [
@@ -47,8 +46,21 @@ dependencies = [
   "requests>=2.28",
   "google-cloud-aiplatform>=1.153.1",
   "boto3>=1.43.14",
-  "cairosvg>=2.9.0"
+  "cairosvg>=2.9.0",
+  "prov>=2.0.0"
 ]
+
+[project.optional-dependencies]
+# EXIF metadata embedding for JPEG images (Phase 4). PNG embedding uses Pillow
+# (already a core dependency), so piexif is only needed for JPEG provenance.
+exif = ["piexif>=1.1.3"]
+# LiteLLM provider (Phase 6): routes generation through litellm.image_generation().
+litellm = ["litellm>=1.40.0"]
+# Azure OpenAI provider (Phase 6): uses the openai SDK's AzureOpenAI client.
+azure = ["openai>=1.0.0"]
+# HuggingFace provider (Phase 6): routes through the InferenceClient with
+# provider="auto" for multi-backend (hf-inference/fal-ai/replicate/...) routing.
+huggingface = ["huggingface_hub>=0.34.0"]
 
 [project.scripts]
 image-creator-tool = "image_creator_tool.cli:main"
@@ -102,8 +114,13 @@ strict_equality = true
 exclude = [".venv", "build", "dist"]
 
 [[tool.mypy.overrides]]
-module = ["cairosvg", "boto3"]
+module = ["cairosvg", "boto3", "piexif", "openai", "litellm", "huggingface_hub"]
 ignore_missing_imports = true
+
+[tool.pylint]
+max-args = 8
+max-branches = 18
+max-statements = 85
 
 [tool.pytest.ini_options]
 minversion = "8.0"
@@ -118,9 +135,6 @@ target-version = "py313"
 line-length = 100
 
 [tool.ruff.lint]
-pylint.max-args = 8
-pylint.max-branches = 18
-pylint.max-statements = 85
 select = [
   "E", # pycodestyle errors
   "W", # pycodestyle warnings
@@ -147,4 +161,8 @@ known-first-party = ["image_creator_tool"]
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
 "tests/**/*.py" = ["ARG", "S101", "PLR2004"]
-"src/image_creator_tool/gemini.py" = ["TCH003"]
+
+[tool.ruff.lint.pylint]
+max-args = 8
+max-branches = 18
+max-statements = 85

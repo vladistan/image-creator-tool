@@ -1,23 +1,30 @@
 """Provider registry and factory for image generation backends.
 
 Supports multiple AI image generation providers through a common interface.
-Registered: gemini, vertex, deepinfra, openrouter.
+Registered: azure-openai, bedrock, deepinfra, gemini, huggingface, litellm,
+openai, openrouter, vertex.
 """
 
 from __future__ import annotations
 
+from image_creator_tool.providers.azure_openai import AzureOpenAIProvider
 from image_creator_tool.providers.base import Provider
 from image_creator_tool.providers.bedrock import BedrockProvider
 from image_creator_tool.providers.deepinfra import DeepInfraProvider
 from image_creator_tool.providers.gemini import GeminiProvider
+from image_creator_tool.providers.huggingface import HuggingFaceProvider
+from image_creator_tool.providers.litellm import LiteLLMProvider
 from image_creator_tool.providers.openai import OpenAIProvider
 from image_creator_tool.providers.openrouter import OpenRouterProvider
 from image_creator_tool.providers.vertex import VertexProvider
 
 REGISTRY: dict[str, type[Provider]] = {
+    "azure-openai": AzureOpenAIProvider,
     "bedrock": BedrockProvider,
     "deepinfra": DeepInfraProvider,
     "gemini": GeminiProvider,
+    "huggingface": HuggingFaceProvider,
+    "litellm": LiteLLMProvider,
     "openai": OpenAIProvider,
     "openrouter": OpenRouterProvider,
     "vertex": VertexProvider,

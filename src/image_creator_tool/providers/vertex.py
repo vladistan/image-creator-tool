@@ -31,15 +31,6 @@ _GEMINI_URL = (
     "https://aiplatform.googleapis.com/v1/projects/{project}"
     "/locations/global/publishers/google/models/{model}:generateContent"
 )
-_IMAGEN_URL = (
-    "https://{region}-aiplatform.googleapis.com/v1/projects/{project}"
-    "/locations/{region}/publishers/google/models/{model}:predict"
-)
-_IMAGEN_MODELS = {
-    "imagen-4.0-generate-001",
-    "imagen-4.0-ultra-generate-001",
-    "imagen-4.0-fast-generate-001",
-}
 
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 _MAX_RETRIES = 4
@@ -52,7 +43,8 @@ class VertexProvider(Provider):
     Requires:
     - gcloud auth application-default login (or service account)
     - IMAGE_CREATOR_GCP_PROJECT env var or config setting
-    - IMAGE_CREATOR_GCP_REGION env var or config setting (default: us-central1)
+
+    The Gemini generateContent endpoint is global, so no region is needed.
     """
 
     name: ClassVar[str] = "vertex"
@@ -61,14 +53,10 @@ class VertexProvider(Provider):
         "flash": "gemini-2.5-flash-image",
         "pro": "gemini-3-pro-image-preview",
         "flash-3.1": "gemini-3.1-flash-image-preview",
-        "imagen": "imagen-4.0-generate-001",
-        "imagen-ultra": "imagen-4.0-ultra-generate-001",
-        "imagen-fast": "imagen-4.0-fast-generate-001",
     }
 
-    def __init__(self, project: str = "", region: str = "us-central1") -> None:
+    def __init__(self, project: str = "") -> None:
         self._project = project
-        self._region = region
         self._credentials: Any = None
 
     def get_api_key(self) -> str | None:
@@ -96,7 +84,7 @@ class VertexProvider(Provider):
         resolved_model = self.resolve_model(params.model)
         return self._call_with_retry(
             prompt, resolved_model, params.edit_source, params.reference_images or None,
-            aspect_ratio=params.aspect_ratio, seed=params.seed,
+            seed=params.seed,
         )
 
     def _call_with_retry(
@@ -105,7 +93,6 @@ class VertexProvider(Provider):
         model: str,
         edit_source: Path | None = None,
         reference_images: list[Path] | None = None,
-        aspect_ratio: str | None = None,
         seed: int | None = None,
     ) -> bytes:
         """Execute API call with exponential backoff retry."""
@@ -114,7 +101,7 @@ class VertexProvider(Provider):
             try:
                 return self._call_once(
                     prompt, model, edit_source, reference_images,
-                    aspect_ratio=aspect_ratio, seed=seed,
+                    seed=seed,
                 )
             except TransientAPIError as e:
                 last_err = e
@@ -145,62 +132,10 @@ class VertexProvider(Provider):
         model: str,
         edit_source: Path | None,
         reference_images: list[Path] | None,
-        aspect_ratio: str | None = None,
         seed: int | None = None,
     ) -> bytes:
-        """Single API call — routes to generateContent or predict based on model."""
-        if model in _IMAGEN_MODELS:
-            return self._call_imagen(prompt, model, aspect_ratio=aspect_ratio, seed=seed)
+        """Single API call — always routes to the Gemini generateContent endpoint."""
         return self._call_gemini(prompt, model, edit_source, reference_images, seed=seed)
-
-    def _call_imagen(
-        self,
-        prompt: str,
-        model: str,
-        aspect_ratio: str | None = None,
-        seed: int | None = None,
-    ) -> bytes:
-        """Call Imagen predict endpoint (different format from Gemini)."""
-        access_token = self._get_access_token()
-        parameters: dict[str, Any] = {"sampleCount": 1}
-        if aspect_ratio:
-            parameters["aspectRatio"] = aspect_ratio
-        if seed is not None:
-            parameters["seed"] = seed
-        payload = {
-            "instances": [{"prompt": prompt}],
-            "parameters": parameters,
-        }
-        url = _IMAGEN_URL.format(region=self._region, project=self._project, model=model)
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode(),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {access_token}",
-                "x-goog-user-project": self._project,
-            },
-        )
-        with sentry_sdk.start_span(op="http.client", description=f"{self.name}.generate") as span:
-            span.set_data("model", model)
-            try:
-                with urllib.request.urlopen(req, timeout=300) as resp:
-                    data = json.loads(resp.read())
-            except urllib.error.HTTPError as e:
-                body = e.read().decode(errors="replace")
-                if e.code in _RETRYABLE_STATUS:
-                    raise TransientAPIError(f"HTTP {e.code}: {body[:400]}") from e
-                raise PermanentAPIError(f"HTTP {e.code}: {body[:400]}") from e
-            except urllib.error.URLError as e:
-                raise TransientAPIError(f"Network error: {e}") from e
-
-        predictions = data.get("predictions", [])
-        if not predictions:
-            raise PermanentAPIError(f"No predictions in response: {data}")
-        b64_data = predictions[0].get("bytesBase64Encoded", "")
-        if not b64_data:
-            raise PermanentAPIError(f"No image bytes in prediction: {list(predictions[0].keys())}")
-        return base64.b64decode(b64_data)
 
     def _call_gemini(
         self,
