@@ -114,6 +114,24 @@ def register_index(image_path: str | Path, key: str) -> str:
     return index
 
 
+def deregister_index(index: str, search_dir: str | Path) -> Path | None:
+    """Remove ``index`` from whichever per-directory map holds it; return its image path.
+
+    Scans ``search_dir`` recursively for the index file containing ``index`` (matching
+    :func:`resolve_index`'s lookup), drops that entry, and rewrites the map. Returns the
+    image path that was mapped, or ``None`` when the index is not registered anywhere.
+    Used by ``forget`` to retire an imported image's registration alongside its file.
+    """
+    normalized = index.lstrip("@").upper()
+    for index_file in Path(search_dir).rglob(INDEX_FILE_NAME):
+        mapping = load_index_map(index_file.parent)
+        if normalized in mapping:
+            image_path = index_file.parent / mapping.pop(normalized)
+            index_file.write_text(json.dumps(mapping, indent=2, sort_keys=True))
+            return image_path
+    return None
+
+
 def resolve_index(index: str, search_dir: str | Path) -> Path:
     """Resolve a short index to its image path by scanning ``search_dir`` recursively.
 

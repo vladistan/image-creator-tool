@@ -33,6 +33,12 @@ image-creator-tool generate "interconnected nodes" --preset editorial --platform
 # Generate 4 variants + contact sheet
 image-creator-tool generate "a crystal" --preset wireframe --n 4
 
+# Deterministic output format (png default, or webp/jpg). Provider bytes are
+# normalized to --format before persist, so the extension never depends on the
+# provider/model, and default-png keeps metadata/EXIF embedding working even for
+# webp-native providers.
+image-creator-tool generate "a crystal" --format png
+
 # Edit existing image
 image-creator-tool generate "make the sky purple" --edit ./photo.png
 
@@ -269,3 +275,40 @@ image-creator-tool gallery --model grok --preset editorial
 - Last run: `~/.config/image-creator-tool/last.json` (for `again`)
 - Sidecar JSON metadata alongside each generated image
 
+## @index Workflow: import, contact-sheet, forget/prune, strip
+
+Generated and imported/web-sourced images share ONE short-index (`@index`) system — the same
+codes resolve in `contact-sheet`, `lookup`, `prov`, `generate --ref`, and `strip`. Pipeline:
+inspiration → selection (raw contact-sheet) → import keepers → assemble strip → prune leftovers.
+
+```bash
+# Inspiration/selection: throwaway sheet straight from raw files (no import, nothing stored).
+# Raw paths are ephemeral cells labeled with the filename minus extension; mixes with @index.
+image-creator-tool contact-sheet ./dl/a.png ./dl/b.png @GEN12345 sheet.png
+
+# Import keepers → copies into ref_images_dir, mints @index, records origin=imported provenance.
+# De-dupe keys on image CONTENT, not URL: same bytes → same @index, new source appended (no dup).
+image-creator-tool import ./dl/a.png ./dl/b.png      # → @LN27KFOD, @S5DJQU76
+
+# Imported @index works everywhere a generated one does:
+image-creator-tool lookup @LN27KFOD
+image-creator-tool prov show @LN27KFOD               # origin=imported, traces to source
+image-creator-tool generate "cat astronaut" --ref @LN27KFOD
+
+# Assemble panels into a comic strip (bold borders + gutters, NO numbered badges):
+image-creator-tool strip @LN27KFOD @S5DJQU76 @GEN12345 strip.png --caption
+image-creator-tool strip @A @B @C @D grid.png --cols 2 --gutter 20 --border 8
+
+# Reclaim: forget picked-over imports, or prune imports no generation references.
+image-creator-tool forget @S5DJQU76                  # removes copy + sidecar + index entry
+image-creator-tool forget --prune --dry-run          # preview unreferenced imports
+image-creator-tool forget --prune                    # delete them
+```
+
+- `ref_images_dir` config defaults to `<output_dir>/ref-images`; created on first import,
+  covered by the recursive index scan. Override via `IMAGE_CREATOR_REF_IMAGES_DIR`.
+- `import`/`forget` touch only imported images: `forget` refuses a generated @index intact.
+  Missing source / unknown @index / unresolvable panel → non-zero exit.
+- **Scripting gotcha:** `contact-sheet` and `strip` exit non-zero on an unresolved `@index`.
+  Do NOT mask `$?` behind a pipe (`| sed`, `| head`) — that reports the pipe's last command,
+  not the tool. Capture the tool's exit code before piping.

@@ -12,7 +12,7 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -42,18 +42,32 @@ class ImageCreatorSettings(BaseSettings):
     output_dir: Path = Field(
         default_factory=lambda: Path.home() / ".local" / "share" / "image-creator-tool" / "outputs"
     )
+    ref_images_dir: Path | None = None
+    """Store for imported reference images; defaults to ``<output_dir>/ref-images``."""
     sentry_dsn: str = ""
 
-    @field_validator("output_dir")
+    @field_validator("output_dir", "ref_images_dir")
     @classmethod
-    def _expand_output_dir(cls, v: Path) -> Path:
+    def _expand_dir(cls, v: Path | None) -> Path | None:
         """Expand a leading ``~`` so a config/env override is a real, scannable path.
 
         Generation expands the tilde when writing, but index/provenance scans use
         this value directly; without expansion they scan a literal ``~/...`` dir
         that does not exist.
         """
-        return v.expanduser()
+        return v.expanduser() if v is not None else None
+
+    @model_validator(mode="after")
+    def _default_ref_images_dir(self) -> ImageCreatorSettings:
+        """Anchor ``ref_images_dir`` under ``output_dir`` when the user left it unset.
+
+        Deriving the default here (rather than via ``default_factory``) lets it track
+        an ``output_dir`` override: a config that only moves ``output_dir`` still gets
+        its reference store beside the outputs instead of in the original location.
+        """
+        if self.ref_images_dir is None:
+            self.ref_images_dir = self.output_dir / "ref-images"
+        return self
     gcp_project: str = ""
     provider_preference: list[str] = [
         "vertex", "deepinfra", "openrouter", "openai", "bedrock", "gemini"
@@ -81,6 +95,19 @@ class ImageCreatorSettings(BaseSettings):
 def load_settings() -> ImageCreatorSettings:
     """Load settings from TOML config and environment variables."""
     return ImageCreatorSettings()
+
+
+def reference_images_dir(settings: ImageCreatorSettings | None = None) -> Path:
+    """Return the reference-image store path as a guaranteed, tilde-expanded ``Path``.
+
+    The ``ref_images_dir`` field is ``Path | None`` so an unset config is distinguishable
+    from an explicit override; this resolves the ``None`` case to the ``<output_dir>/ref-images``
+    default for callers (import/forget/prune) that need a concrete directory.
+    """
+    resolved = settings or load_settings()
+    if resolved.ref_images_dir is not None:
+        return resolved.ref_images_dir
+    return resolved.output_dir / "ref-images"
 
 
 def _load_profiles_raw() -> dict[str, dict[str, Any]]:

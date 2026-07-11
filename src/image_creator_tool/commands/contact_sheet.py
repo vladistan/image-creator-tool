@@ -42,9 +42,52 @@ def _label_for(index: str, image_path: Path, mode: str) -> str:
     return f"@{index}"
 
 
+def _looks_like_path(arg: str) -> bool:
+    """Decide whether a positional arg is a raw file path rather than an @index code.
+
+    An ``@``-prefix is always an index (handled by the caller). Otherwise the arg is a raw
+    path when it names an existing file, carries a path separator, or has a file extension;
+    a bare token with none of these falls through to index resolution so plain index codes
+    keep working.
+    """
+    if Path(arg).is_file():
+        return True
+    if "/" in arg or "\\" in arg:
+        return True
+    return bool(Path(arg).suffix)
+
+
+def _resolve_cell(arg: str, search_dir: Path, label_mode: str) -> tuple[Path, str]:
+    """Resolve one positional arg to an ``(image_path, label)`` contact-sheet cell.
+
+    Raw paths are ephemeral — no import, no index minted, no store write — and are labeled
+    with the bare filename minus its extension. @index args resolve through the store and
+    keep their configured label mode.
+
+    Raises:
+        PermanentAPIError: A raw path does not exist, or an @index cannot be resolved.
+    """
+    if not arg.startswith("@") and _looks_like_path(arg):
+        path = Path(arg)
+        if not path.is_file():
+            raise PermanentAPIError(f"Contact-sheet source not found: {path}")
+        return path, path.stem
+
+    image_path = indexer.resolve_index(arg, search_dir)
+    if not image_path.exists():
+        norm = arg.lstrip("@").upper()
+        raise PermanentAPIError(
+            f"Image for @{norm} is indexed but missing on disk: {image_path}"
+        )
+    return image_path, _label_for(arg.lstrip("@").upper(), image_path, label_mode)
+
+
 def contact_sheet(
     indices: Annotated[
-        list[str], typer.Argument(help="Image indices to include, e.g. @X7TYJYD3 @ESR75CUW")
+        list[str],
+        typer.Argument(
+            help="Image indices (@X7TYJYD3) and/or raw file paths to include; mixed lists allowed"
+        ),
     ],
     output: Annotated[
         Path | None, typer.Argument(help="Output path (default: ./contact-sheet.png)")
@@ -69,14 +112,8 @@ def contact_sheet(
         txn.set_tag("label_mode", label)
         cells: list[tuple[Path, str]] = []
         for raw in indices:
-            with sentry_sdk.start_span(op="index.resolve", description="resolve_index"):
-                image_path = indexer.resolve_index(raw, search_dir)
-            if not image_path.exists():
-                norm = raw.lstrip("@").upper()
-                raise PermanentAPIError(
-                    f"Image for @{norm} is indexed but missing on disk: {image_path}"
-                )
-            cells.append((image_path, _label_for(raw.lstrip("@").upper(), image_path, label)))
+            with sentry_sdk.start_span(op="cell.resolve", description="resolve_cell"):
+                cells.append(_resolve_cell(raw, search_dir, label))
 
         out_path = output or Path("contact-sheet.png")
         with sentry_sdk.start_span(op="sheet.render", description="make_labeled_contact_sheet"):

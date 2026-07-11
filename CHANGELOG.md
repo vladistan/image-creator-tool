@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.1 — 2026-07-11
+
+### Added
+
+- `import` command — bring external images into the reference-image store with a minted `@index` code, content-based de-dupe, and `origin=imported` provenance
+- `forget` command — remove imported reference images from the store, with `--prune`/`--prune --dry-run` to clean up imports unreferenced by any generation
+- `strip` command — assemble `@index` panels (imported or generated) into a single bordered comic strip (the assembly step of the image-to-comic pipeline; distinct from `contact-sheet`)
+- `--format {png,webp,jpg}` option on `generate` for deterministic output-format normalization (defaults to `png`)
+- Configurable `ref_images_dir` setting (defaults to `<output_dir>/ref-images`, env override `IMAGE_CREATOR_REF_IMAGES_DIR`)
+
+### Changed
+
+- `contact-sheet` now accepts raw file paths alongside `@index` codes (lists can mix both)
+- `prov show` now accepts `@index` codes in addition to file paths and `.prov.json` sidecars
+
 ## 0.2.0 — 2026-07-09
 
 ### Added

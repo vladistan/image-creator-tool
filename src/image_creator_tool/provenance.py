@@ -39,6 +39,9 @@ PROV_NAMESPACE_PREFIX = "imgc"
 
 _SIDECAR_SUFFIX = ".prov.json"
 
+# Public alias so other domain modules (e.g. refimages) can discover sidecars by suffix.
+SIDECAR_SUFFIX = _SIDECAR_SUFFIX
+
 # Stable UUID namespace so entity/activity IDs are deterministic across runs.
 _ID_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, PROV_NAMESPACE_URI)
 
@@ -61,6 +64,10 @@ class ProvenanceRecord:
     parameters: dict[str, Any] = field(default_factory=dict)
     subject: str = ""
     """Raw prompt before preset composition; empty when no preset was applied."""
+    origin: str = "generated"
+    """How the image entered the store: ``generated`` (default) or ``imported``."""
+    sources: list[str] = field(default_factory=list)
+    """Original URLs/paths an imported image was copied from; empty for generated images."""
 
     @property
     def entity_id(self) -> str:
@@ -135,6 +142,12 @@ class ProvenanceRecord:
         }
         if self.subject:
             attrs[f"{PROV_NAMESPACE_PREFIX}:subject"] = self.subject
+        # Emit origin only when it deviates from the default so pre-existing
+        # generated sidecars keep byte-for-byte identical attribute sets.
+        if self.origin != "generated":
+            attrs[f"{PROV_NAMESPACE_PREFIX}:origin"] = self.origin
+        if self.sources:
+            attrs[f"{PROV_NAMESPACE_PREFIX}:sources"] = json.dumps(self.sources)
         if self.seed is not None:
             attrs[f"{PROV_NAMESPACE_PREFIX}:seed"] = self.seed
         if self.parameters:
@@ -189,6 +202,7 @@ def load_record(sidecar_path: str | Path) -> ProvenanceRecord:
     attrs = next(iter(entities.values()))
     seed_raw = _attr(attrs, "seed")
     params_raw = _attr(attrs, "parameters")
+    sources_raw = _attr(attrs, "sources")
     return ProvenanceRecord(
         prompt=_attr(attrs, "prompt") or "",
         model=_attr(attrs, "model") or "",
@@ -198,6 +212,8 @@ def load_record(sidecar_path: str | Path) -> ProvenanceRecord:
         seed=int(seed_raw) if seed_raw is not None else None,
         parameters=json.loads(params_raw) if params_raw else {},
         subject=_attr(attrs, "subject") or "",
+        origin=_attr(attrs, "origin") or "generated",
+        sources=json.loads(sources_raw) if sources_raw else [],
     )
 
 

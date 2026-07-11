@@ -18,7 +18,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from image_creator_tool import provenance
+from image_creator_tool import indexer, provenance
 from image_creator_tool.config import load_settings
 from image_creator_tool.errors import PermanentAPIError
 
@@ -84,12 +84,15 @@ def list_cmd(
 @prov_app.command("show")
 def show_cmd(
     image_path: Annotated[
-        str, typer.Argument(help="Image (or .prov.json sidecar) to describe")
+        str, typer.Argument(help="Image path, .prov.json sidecar, or @index to describe")
     ],
+    output_dir: Annotated[
+        Path | None, typer.Option("--output-dir", help="Directory to scan for indices")
+    ] = None,
 ) -> None:
-    """Print the full provenance record for a specific image."""
+    """Print the full provenance record for a specific image, path, or @index."""
     with sentry_sdk.start_transaction(op="prov.show", name="prov_show") as txn:
-        target = Path(image_path)
+        target = _resolve_target(image_path, output_dir)
         sidecar = target if target.suffix == ".json" else provenance.sidecar_path_for(target)
         txn.set_tag("sidecar", str(sidecar))
         with sentry_sdk.start_span(op="prov.load", description="load_record"):
@@ -127,6 +130,19 @@ def export_cmd(
         with sentry_sdk.start_span(op="prov.export", description="export_prov_n"):
             document = provenance.export_prov_n(output_dir)
     typer.echo(document)
+
+
+def _resolve_target(image_path: str, output_dir: Path | None) -> Path:
+    """Resolve a ``prov show`` argument to an image/sidecar path.
+
+    An ``@index`` is resolved through the store (the same path ``lookup``/``contact-sheet``
+    use) so imported and generated images are inspectable by their short code; a plain path
+    or ``.prov.json`` sidecar is passed through unchanged.
+    """
+    if image_path.startswith("@"):
+        search_dir = output_dir or load_settings().output_dir
+        return indexer.resolve_index(image_path, search_dir)
+    return Path(image_path)
 
 
 def _truncate(text: str, width: int = 48) -> str:

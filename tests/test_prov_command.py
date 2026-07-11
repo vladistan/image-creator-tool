@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from image_creator_tool.cli import app
+from image_creator_tool.indexer import register_index
 from image_creator_tool.provenance import ProvenanceRecord, write_provenance_sidecar
 
 
@@ -118,3 +119,22 @@ def test_prov_show_accepts_sidecar_path_directly(runner, outputs_dir):
     result = runner.invoke(app, ["prov", "show", str(Path(sidecar))])
     assert result.exit_code == 0
     assert "a red barn" in result.stdout
+
+
+def test_prov_show_accepts_index(runner, outputs_dir):
+    barn = outputs_dir / "barn.png"
+    barn.write_bytes(b"fake-png")
+    index = register_index(barn, key="entity-barn")
+
+    result = runner.invoke(
+        app, ["prov", "show", f"@{index}", "--output-dir", str(outputs_dir)]
+    )
+    assert result.exit_code == 0, result.output
+    assert "a red barn" in result.stdout
+
+
+def test_prov_show_unknown_index_exits_nonzero(runner, outputs_dir):
+    result = runner.invoke(
+        app, ["prov", "show", "@ZZZZZZZZ", "--output-dir", str(outputs_dir)]
+    )
+    assert result.exit_code != 0

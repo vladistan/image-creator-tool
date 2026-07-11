@@ -54,3 +54,64 @@ def test_contact_sheet_unknown_index_errors(runner, tmp_path):
     )
     assert result.exit_code != 0
     assert not out.exists()
+
+
+def _make_raw_image(tmp_path, name):
+    path = tmp_path / name
+    Image.new("RGB", (8, 8), (60, 160, 60)).save(path)
+    return path
+
+
+def test_contact_sheet_from_raw_paths(runner, tmp_path):
+    a = _make_raw_image(tmp_path, "web-cat.png")
+    b = _make_raw_image(tmp_path, "web-dog.png")
+    out = tmp_path / "sheet.png"
+
+    result = runner.invoke(
+        app, ["contact-sheet", str(a), str(b), str(out), "--output-dir", str(tmp_path)]
+    )
+    assert result.exit_code == 0, result.output
+    assert out.is_file()
+    assert "2 images" in result.output
+
+
+def test_contact_sheet_mixes_index_and_raw_path(runner, tmp_path):
+    idx = _make_indexed_image(tmp_path, "gen.png")
+    raw = _make_raw_image(tmp_path, "web-cat.png")
+    out = tmp_path / "sheet.png"
+
+    result = runner.invoke(
+        app,
+        ["contact-sheet", f"@{idx}", str(raw), str(out), "--output-dir", str(tmp_path)],
+    )
+    assert result.exit_code == 0, result.output
+    assert out.is_file()
+
+
+def test_contact_sheet_raw_missing_path_errors(runner, tmp_path):
+    out = tmp_path / "sheet.png"
+    result = runner.invoke(
+        app,
+        ["contact-sheet", str(tmp_path / "ghost.png"), str(out), "--output-dir", str(tmp_path)],
+    )
+    assert result.exit_code != 0
+    assert not out.exists()
+
+
+def test_contact_sheet_raw_label_is_filename_stem(runner, tmp_path, monkeypatch):
+    raw = _make_raw_image(tmp_path, "sunset-beach.png")
+    captured = {}
+
+    def _fake_sheet(cells, output_path, **kwargs):
+        captured["cells"] = cells
+        output_path.write_bytes(b"x")
+        return output_path
+
+    monkeypatch.setattr(
+        "image_creator_tool.commands.contact_sheet.make_labeled_contact_sheet", _fake_sheet
+    )
+    result = runner.invoke(
+        app, ["contact-sheet", str(raw), str(tmp_path / "s.png"), "--output-dir", str(tmp_path)]
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["cells"][0][1] == "sunset-beach"

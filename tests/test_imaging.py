@@ -11,6 +11,7 @@ from image_creator_tool.imaging import (
     _load_badge_font,
     make_contact_sheet,
     make_labeled_contact_sheet,
+    make_panel_strip,
 )
 
 # Non-red fill so the only red-dominant pixels come from badges.
@@ -247,3 +248,36 @@ def test_labeled_sheet_badge_stays_below_label_strip(tmp_path):
         for yy in range(y0, y0 + _LABEL_HEIGHT):
             for xx in range(10, 90):
                 assert not _is_red(sheet.getpixel((xx, yy))), "badge leaked into label strip"
+
+
+def test_panel_strip_single_row_is_wide(tmp_path):
+    panels = [(_make_test_image(tmp_path / f"p{i}.png", _CELL_COLOR), "") for i in range(3)]
+    out = tmp_path / "strip.png"
+    make_panel_strip(panels, out, cell_width=60)
+    with Image.open(out) as strip:
+        assert strip.width > strip.height
+
+
+def test_panel_strip_cols_makes_grid(tmp_path):
+    panels = [(_make_test_image(tmp_path / f"p{i}.png", _CELL_COLOR), "") for i in range(4)]
+    row = tmp_path / "row.png"
+    grid = tmp_path / "grid.png"
+    make_panel_strip(panels, row, cell_width=60)
+    make_panel_strip(panels, grid, cols=2, cell_width=60)
+    with Image.open(row) as r, Image.open(grid) as g:
+        assert g.height > r.height
+
+
+def test_panel_strip_captions_add_height(tmp_path):
+    panels = [(_make_test_image(tmp_path / f"p{i}.png", _CELL_COLOR), f"cap {i}") for i in range(2)]
+    plain = tmp_path / "plain.png"
+    capped = tmp_path / "capped.png"
+    make_panel_strip(panels, plain, cell_width=60, captions=False)
+    make_panel_strip(panels, capped, cell_width=60, captions=True)
+    with Image.open(plain) as a, Image.open(capped) as b:
+        assert b.height > a.height
+
+
+def test_panel_strip_empty_raises(tmp_path):
+    with pytest.raises(ValueError, match="No panels"):
+        make_panel_strip([], tmp_path / "x.png")

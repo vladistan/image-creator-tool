@@ -25,6 +25,33 @@ def _open_image(path: Path) -> Image.Image:
         return Image.open(BytesIO(png_bytes))
     return Image.open(path)
 
+
+SUPPORTED_OUTPUT_FORMATS = ("png", "webp", "jpg")
+_PIL_SAVE_FORMATS = {"png": "PNG", "webp": "WEBP", "jpg": "JPEG", "jpeg": "JPEG"}
+
+
+def normalize_image_bytes(image_bytes: bytes, target_format: str) -> bytes:
+    """Re-encode raster ``image_bytes`` to ``target_format`` (png/webp/jpg) via Pillow.
+
+    Guarantees the persisted bytes match the requested format regardless of what
+    the provider returned, so downstream metadata/EXIF embedding always has a known,
+    embeddable format to write into. JPEG carries no alpha channel, so images with
+    transparency are flattened onto a white background. Raises ``ValueError`` for an
+    unknown target format so callers surface an honest error rather than mis-saving.
+    """
+    pil_format = _PIL_SAVE_FORMATS.get(target_format.lower())
+    if pil_format is None:
+        raise ValueError(f"unsupported output format: {target_format}")
+    img: Image.Image = Image.open(BytesIO(image_bytes))
+    if pil_format == "JPEG" and img.mode in ("RGBA", "LA", "P"):
+        img = img.convert("RGBA")
+        flattened = Image.new("RGB", img.size, (255, 255, 255))
+        flattened.paste(img, mask=img.split()[-1])
+        img = flattened
+    buffer = BytesIO()
+    img.save(buffer, format=pil_format)
+    return buffer.getvalue()
+
 _CONTACT_BG_COLOR = (15, 15, 15)  # #0f0f0f
 _CONTACT_CELL_WIDTH = 600
 _CONTACT_SPACING = 10
@@ -186,6 +213,14 @@ _LABEL_HEIGHT = 24
 _LABEL_COLOR = (255, 255, 255)
 _LABEL_BG = (30, 30, 30)
 
+# Panel-strip styling: bold frames + gutters distinguish an assembled comic strip
+# from a contact sheet (which carries numbered badges instead).
+_STRIP_BG_COLOR = (255, 255, 255)
+_STRIP_BORDER_COLOR = (0, 0, 0)
+_STRIP_GUTTER = 16
+_STRIP_BORDER = 6
+_STRIP_CAPTION_FONT_SIZE = 16
+
 
 def make_labeled_contact_sheet(  # noqa: PLR0913 — signature fixed by design (labeled + badge params)
     cells: list[tuple[Path, str]],
@@ -273,6 +308,87 @@ def make_labeled_contact_sheet(  # noqa: PLR0913 — signature fixed by design (
     sheet.save(output_path)
 
     for cell, _ in images:
+        cell.close()
+
+    return output_path
+
+
+def make_panel_strip(  # noqa: PLR0913 — layout/border/caption knobs are the command's surface
+    panels: list[tuple[Path, str]],
+    output_path: Path,
+    rows: int = 1,
+    cols: int = 0,
+    gutter: int = _STRIP_GUTTER,
+    border: int = _STRIP_BORDER,
+    bg_color: tuple[int, int, int] = _STRIP_BG_COLOR,
+    border_color: tuple[int, int, int] = _STRIP_BORDER_COLOR,
+    cell_width: int = _CONTACT_CELL_WIDTH,
+    captions: bool = False,
+) -> Path:
+    """Compose @index panels into a bordered comic strip.
+
+    Each panel is framed with a bold ``border`` and separated by ``gutter`` on a solid
+    background — deliberately distinct from a contact sheet (no numbered badges). Panels lay
+    out left-to-right across ``cols`` columns; ``cols=0`` derives the column count from
+    ``rows`` so the default (``rows=1``) yields a single horizontal strip. When ``captions``
+    is set, each panel's caption text is rendered in a bar beneath its image.
+
+    Args:
+        panels: ``(image_path, caption)`` tuples; caption is ignored unless ``captions`` is set.
+        output_path: Where to save the assembled strip.
+        rows: Row count used to derive columns when ``cols`` is 0.
+        cols: Explicit column count; 0 = derive from ``rows``.
+        gutter: Pixel gap between panels and around the border.
+        border: Panel frame thickness in pixels.
+        bg_color: RGB background colour behind the panels.
+        border_color: RGB colour of each panel's frame.
+        cell_width: Width in pixels each panel image is scaled to.
+        captions: Render a caption bar beneath each panel.
+    """
+    if not panels:
+        raise ValueError("No panels for strip")
+
+    count = len(panels)
+    if cols <= 0:
+        cols = math.ceil(count / rows) if rows > 0 else count
+    grid_rows = math.ceil(count / cols)
+
+    loaded: list[tuple[Image.Image, str]] = []
+    cell_height = 0
+    for path, caption in panels:
+        img = _open_image(path)
+        scale = cell_width / img.width
+        new_h = int(img.height * scale)
+        cell = img.resize((cell_width, new_h), Resampling.LANCZOS)
+        loaded.append((cell, caption))
+        cell_height = max(cell_height, new_h)
+
+    caption_h = _LABEL_HEIGHT if captions else 0
+    tile_w = cell_width + 2 * border
+    tile_h = cell_height + caption_h + 2 * border
+    grid_w = cols * tile_w + (cols + 1) * gutter
+    grid_h = grid_rows * tile_h + (grid_rows + 1) * gutter
+
+    sheet = Image.new("RGB", (grid_w, grid_h), bg_color)
+    draw = ImageDraw.Draw(sheet)
+    font = _load_badge_font(_STRIP_CAPTION_FONT_SIZE)
+    for i, (cell, caption) in enumerate(loaded):
+        col = i % cols
+        row = i // cols
+        x = gutter + col * (tile_w + gutter)
+        y = gutter + row * (tile_h + gutter)
+        draw.rectangle([x, y, x + tile_w - 1, y + tile_h - 1], fill=border_color)
+        sheet.paste(cell, (x + border, y + border))
+        if captions:
+            cap_y = y + border + cell_height
+            draw.rectangle(
+                [x + border, cap_y, x + border + cell_width, cap_y + caption_h], fill=_LABEL_BG
+            )
+            draw.text((x + border + 4, cap_y + 4), caption, fill=_LABEL_COLOR, font=font)
+
+    sheet.save(output_path)
+
+    for cell, _ in loaded:
         cell.close()
 
     return output_path

@@ -24,7 +24,11 @@ from image_creator_tool.history import (
     save_last_run,
     write_sidecar,
 )
-from image_creator_tool.imaging import apply_platform_fit, make_contact_sheet
+from image_creator_tool.imaging import (
+    apply_platform_fit,
+    make_contact_sheet,
+    normalize_image_bytes,
+)
 from image_creator_tool.indexer import register_index
 from image_creator_tool.provenance import (
     ProvenanceRecord,
@@ -135,11 +139,16 @@ def generate_once(  # noqa: PLR0913
     edit_op: str | None = None,
     search_prompt: str | None = None,
     mask: Path | None = None,
+    output_format: str | None = None,
 ) -> GenerationResult:
     """Generate a single image through the provider and write to disk.
 
-    Detects output format from response bytes and adjusts file extension.
-    Handles platform fitting as a post-processing step (skipped for SVG).
+    When ``output_format`` (png/webp/jpg) is given, provider bytes are normalized
+    to that format via Pillow before persisting so the output extension is
+    deterministic and metadata/EXIF embedding always has an embeddable format.
+    Otherwise the format is detected from the response bytes and the extension is
+    adjusted to match. Handles platform fitting as a post-processing step (skipped
+    for SVG, which is vector and left untouched).
     """
     start = time.time()
     with sentry_sdk.start_span(op="ai.generate", description=f"{provider.name}/{model}") as span:
@@ -163,6 +172,16 @@ def generate_once(  # noqa: PLR0913
 
     # Detect actual format and fix extension if needed
     detected = _detect_format(img_bytes)
+
+    # Normalize to a deterministic output format when requested. SVG is vector and
+    # left untouched; bytes already in the target format skip the re-encode so
+    # original quality is preserved.
+    if output_format and detected != "svg":
+        target = "jpeg" if output_format == "jpg" else output_format
+        if detected != target:
+            img_bytes = normalize_image_bytes(img_bytes, output_format)
+            detected = target
+
     output_path = _fix_output_extension(output_path, detected, explicit_path=explicit_path)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -458,6 +477,12 @@ def _generate_inner(
     aspect: str | None = getattr(args, "aspect", None) or config.get("default_aspect")
     seed_val = _parse_seed(args)
 
+    # Deterministic output format: default png so output is portable and
+    # metadata-embeddable regardless of which provider/model served the request.
+    output_format: str = (
+        getattr(args, "output_format", None) or config.get("default_format") or "png"
+    ).lower()
+
     # Contact sheet config
     contact_cols: int = int(getattr(args, "contact_cols", None) or config.get("contact_cols", 2))
     contact_cell_width: int = int(
@@ -524,6 +549,7 @@ def _generate_inner(
                 size=size, quality=quality, aspect_ratio=aspect,
                 seed=seed_val, edit_op=edit_op,
                 search_prompt=search_prompt_val, mask=mask_path,
+                output_format=output_format,
             )
         except Exception as e:
             log.error("variant generation failed", variant=i + 1, error=str(e))

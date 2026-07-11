@@ -58,6 +58,26 @@ def test_subject_defaults_empty_and_is_omitted_from_prov():
     assert "imgc:subject" not in entity_attrs
 
 
+def test_origin_defaults_generated_and_is_omitted_from_prov():
+    rec = _record()
+    assert rec.origin == "generated"
+    assert rec.sources == []
+    raw = json.loads(rec.to_prov_json())
+    entity_attrs = next(iter(raw["entity"].values()))
+    assert "imgc:origin" not in entity_attrs
+    assert "imgc:sources" not in entity_attrs
+
+
+def test_imported_origin_and_sources_round_trip(tmp_path):
+    rec = _record(origin="imported", sources=["https://ex/cat.png", "/local/cat.png"])
+    image = tmp_path / "cat.png"
+    image.write_bytes(b"data")
+    sidecar = write_provenance_sidecar(rec, image, overwrite=True)
+    loaded = load_record(sidecar)
+    assert loaded.origin == "imported"
+    assert loaded.sources == ["https://ex/cat.png", "/local/cat.png"]
+
+
 def test_subject_recorded_and_round_trips(tmp_path):
     rec = _record(
         subject="a red barn",

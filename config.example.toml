@@ -18,7 +18,10 @@ default_profile = ""
 default_project = ""
 # Output directory for generated images
 # Default: ~/.local/share/image-creator-tool/outputs/
+# Store for imported reference images (image-creator-tool import); recursively
+# index-scanned. Defaults to <output_dir>/ref-images when unset.
 output_dir = "~/.local/share/image-creator-tool/outputs"
+ref_images_dir = "~/.local/share/image-creator-tool/outputs/ref-images"
 # Sentry DSN for error tracking (optional)
 sentry_dsn = ""
 

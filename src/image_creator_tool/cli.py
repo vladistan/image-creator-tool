@@ -18,8 +18,10 @@ import typer
 from image_creator_tool import __version__
 from image_creator_tool.commands.again import again
 from image_creator_tool.commands.contact_sheet import contact_sheet
+from image_creator_tool.commands.forget import forget
 from image_creator_tool.commands.gallery import gallery
 from image_creator_tool.commands.history import history
+from image_creator_tool.commands.import_images import import_images
 from image_creator_tool.commands.init_cmd import init
 from image_creator_tool.commands.lookup import lookup
 from image_creator_tool.commands.models import list_models_cmd
@@ -29,10 +31,12 @@ from image_creator_tool.commands.presets import (
     list_providers_cmd,
 )
 from image_creator_tool.commands.prov import prov_app
+from image_creator_tool.commands.strip import strip
 from image_creator_tool.commands.style import style_app
 from image_creator_tool.config import get_config_dict, list_profiles, load_settings
 from image_creator_tool.errors import ImageCreatorError
 from image_creator_tool.generation import generate
+from image_creator_tool.imaging import SUPPORTED_OUTPUT_FORMATS
 from image_creator_tool.indexer import expand_reference
 from image_creator_tool.monitoring import setup_logging, setup_sentry
 from image_creator_tool.presets import load_platforms, load_presets
@@ -85,7 +89,10 @@ def _global_options(
 app.command("init")(init)
 app.command("again")(again)
 app.command("lookup")(lookup)
+app.command("import")(import_images)
+app.command("forget")(forget)
 app.command("contact-sheet")(contact_sheet)
+app.command("strip")(strip)
 app.command("history")(history)
 app.command("gallery")(gallery)
 app.command("list-models")(list_models_cmd)
@@ -250,6 +257,14 @@ def generate_cmd(  # noqa: PLR0913
     dry_run: Annotated[
         bool, typer.Option("--dry-run", help="Show prompt without calling API")
     ] = False,
+    image_format: Annotated[
+        str,
+        typer.Option(
+            "--format",
+            help="Output image format: png (default), webp, or jpg. Provider output"
+            " is normalized to this format so the extension is deterministic.",
+        ),
+    ] = "png",
     no_metadata: Annotated[
         bool, typer.Option("--no-metadata", help="Skip sidecar JSON")
     ] = False,
@@ -299,6 +314,16 @@ def generate_cmd(  # noqa: PLR0913
             err=True,
         )
 
+    # Validate the requested output format (deterministic normalization target).
+    output_format = image_format.lower()
+    if output_format not in SUPPORTED_OUTPUT_FORMATS:
+        typer.echo(
+            f"Error: unsupported --format '{image_format}'."
+            f" Choose from: {', '.join(SUPPORTED_OUTPUT_FORMATS)}",
+            err=True,
+        )
+        raise typer.Exit(code=ExitCode.USAGE_ERROR)
+
     # Resolve saved style name to its description text (raises if unknown).
     style_description = load_style(style) if style else None
 
@@ -338,6 +363,7 @@ def generate_cmd(  # noqa: PLR0913
         badges=not no_badges,
         contact_badge_radius=contact_badge_radius,
         dry_run=dry_run,
+        output_format=output_format,
         no_metadata=no_metadata,
         presets=load_presets(),
         platforms=load_platforms(),
